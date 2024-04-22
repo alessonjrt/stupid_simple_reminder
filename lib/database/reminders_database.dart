@@ -8,14 +8,10 @@ class RemindersDatabase {
   late final Box<Reminder> box;
 
   Future<RemindersDatabase> init() async {
-    final dir =
-        await getApplicationDocumentsDirectory(); // Get the directory path
-    final path = p.join(
-        dir.path, 'objectbox'); // Append 'objectbox' to the directory path
-    store = Store(getObjectBoxModel(),
-        directory: path); // Initialize the store with the path
+    final dir = await getApplicationDocumentsDirectory();
+    final path = p.join(dir.path, 'objectbox');
+    store = Store(getObjectBoxModel(), directory: path);
     box = store.box<Reminder>();
-
     return this;
   }
 

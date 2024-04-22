@@ -3,33 +3,48 @@ import 'package:flutter/material.dart';
 import 'package:stupid_simple_reminder/models/reminder.dart';
 
 class NotificationService {
-  static const String channelKey = 'my_channel';
-  static const String channelGroupKey = 'my_channel';
+  static late String _channelKey;
+  static bool _canShowNotifications = false;
+  static Future<void> initialize(
+      {required String channelKey,
+      required String channelGroupKey,
+      required String? channelName,
+      required String channelGroupName,
+      required String? channelDescription,
+      required Color? ledColor,
+      Color? defaultColor}) async {
+    _channelKey = channelKey;
 
-  static Future<void> initialize() async {
     await AwesomeNotifications().initialize(
         null,
         [
           NotificationChannel(
               channelGroupKey: channelGroupKey,
               channelKey: channelKey,
-              channelName: 'Basic notifications',
-              channelDescription: 'Notification channel for basic tests',
-              defaultColor: Color(0xFF9D50DD),
+              channelName: channelName,
+              channelDescription: channelDescription,
+              defaultColor: defaultColor,
               ledColor: Colors.white)
         ],
         channelGroups: [
           NotificationChannelGroup(
-              channelGroupName: 'Basic group', channelGroupKey: channelGroupKey)
+              channelGroupName: channelGroupName,
+              channelGroupKey: channelGroupKey)
         ],
         debug: true);
+    _canShowNotifications =
+        await AwesomeNotifications().requestPermissionToSendNotifications();
   }
 
   static Future<void> createNotification(Reminder reminder) async {
+    if (!_canShowNotifications) {
+      throw Exception('App cannot send notifications');
+    }
+
     await AwesomeNotifications().createNotification(
         content: NotificationContent(
           id: reminder.id,
-          channelKey: channelKey,
+          channelKey: _channelKey,
           criticalAlert: true,
           title: reminder.title,
           body: reminder.description,
@@ -46,6 +61,10 @@ class NotificationService {
   }
 
   static Future<void> cancelNotification(int id) async {
+    if (!_canShowNotifications) {
+      throw Exception('App cannot delete notifications');
+    }
+
     await AwesomeNotifications().cancel(id);
   }
 }

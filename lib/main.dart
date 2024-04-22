@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:stupid_simple_reminder/screens/list_reminder_page.dart';
-import 'package:stupid_simple_reminder/services/notification_service.dart';
 import 'package:stupid_simple_reminder/services/reminder_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Permission.notification.request();
-  await Permission.scheduleExactAlarm.request();
-
-  NotificationService.initialize();
-  await ReminderManager.initialize();
+  await ReminderManager.initialize(
+    channelDescription: 'Canal de notificações',
+    channelGroupKey: 'reminder_channel_group',
+    channelGroupName: 'Reminder Group',
+    channelKey: 'reminder_key',
+    channelName: 'Reminder Channel',
+    ledColor: Colors.white,
+    defaultColor: Colors.blue
+  );
   runApp(const MyApp());
 }
 

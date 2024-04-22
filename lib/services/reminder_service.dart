@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:stupid_simple_reminder/database/reminders_database.dart';
 import 'package:stupid_simple_reminder/models/reminder.dart';
 import 'package:stupid_simple_reminder/services/notification_service.dart';
@@ -6,18 +6,33 @@ import 'package:stupid_simple_reminder/services/notification_service.dart';
 class ReminderManager {
   static final ReminderManager _singleton = ReminderManager._internal();
   late RemindersDatabase _db;
-  ValueNotifier<List<Reminder>> remindersListNotifier;
+  ValueNotifier<List<Reminder>> remindersListNotifier =
+      ValueNotifier<List<Reminder>>([]);
 
-  ReminderManager._internal()
-      : remindersListNotifier = ValueNotifier<List<Reminder>>([]);
-
-  static Future<void> initialize() async {
-    _singleton._db = await RemindersDatabase().init();
-    _singleton._refreshReminders();
-  }
+  ReminderManager._internal();
 
   factory ReminderManager() {
     return _singleton;
+  }
+
+  static Future<void> initialize(
+      {required String channelKey,
+      required String channelGroupKey,
+      required String? channelName,
+      required String channelGroupName,
+      required String? channelDescription,
+      required Color? ledColor,
+      Color? defaultColor}) async {
+    _singleton._db = await RemindersDatabase().init();
+    _singleton._refreshReminders();
+    await NotificationService.initialize(
+        channelDescription: channelDescription,
+        channelGroupKey: channelGroupKey,
+        channelKey: channelKey,
+        channelGroupName: channelGroupName,
+        channelName: channelName,
+        ledColor: ledColor,
+        defaultColor: defaultColor);
   }
 
   Future<int> createReminder(Reminder reminder) async {
@@ -26,68 +41,33 @@ class ReminderManager {
     _refreshReminders();
 
     if (reminder.repeatCount != null && reminder.repeatInterval != null) {
-      int currentHour = reminder.hour;
-      int currentMinute = reminder.minute;
-
-      for (int i = 1; i <= reminder.repeatCount!; i++) {
-        Map<String, int> childTime =
-            incrementHour(currentHour, currentMinute, reminder.repeatInterval!);
-
-        Reminder childReminder = Reminder(
-          dadId: mainReminderId,
-          title: reminder.title,
-          description: reminder.description,
-          enabled: reminder.enabled,
-          hour: childTime['hour']!,
-          minute: childTime['minute']!,
-        );
-        childReminder.id = _db.saveReminder(childReminder);
-        await NotificationService.createNotification(childReminder);
-
-        currentHour = childTime['hour']!;
-        currentMinute = childTime['minute']!;
-      }
+      await createRecurringReminders(mainReminderId, reminder);
     }
-
     return mainReminderId;
   }
 
   void _refreshReminders() {
-    remindersListNotifier.value = _db
-        .getAllReminders()
-        .where((element) => element.dadId == null)
-        .toList();
+    remindersListNotifier.value =
+        _db.getAllReminders().where((r) => r.dadId == null).toList();
   }
 
   Future<bool> updateReminder(Reminder updatedReminder) async {
-    Reminder? existingReminder = _db.getReminder(updatedReminder.id);
-
-    if (existingReminder == null) {
-      throw 'error';
-    }
-
-    await NotificationService.cancelNotification(existingReminder.id);
-    List<Reminder> childReminders = _db
-        .getAllReminders()
-        .where((reminder) => reminder.dadId == existingReminder.id)
-        .toList();
-    for (var childReminder in childReminders) {
-      await NotificationService.cancelNotification(childReminder.id);
-      _db.removeReminder(childReminder.id);
-    }
+    var existingReminder = _db.getReminder(updatedReminder.id);
+    if (existingReminder == null) throw Exception('Reminder not found.');
 
     existingReminder.hour = updatedReminder.hour;
     existingReminder.minute = updatedReminder.minute;
     existingReminder.title = updatedReminder.title;
     existingReminder.description = updatedReminder.description;
     existingReminder.enabled = updatedReminder.enabled;
-    _db.saveReminder(existingReminder);
 
+    await NotificationService.cancelNotification(existingReminder.id);
     await NotificationService.createNotification(existingReminder);
+    _db.saveReminder(existingReminder);
 
     if (updatedReminder.repeatCount != null &&
         updatedReminder.repeatInterval != null) {
-      createRecurringReminders(existingReminder.id, updatedReminder);
+      await createRecurringReminders(existingReminder.id, updatedReminder);
     }
 
     _refreshReminders();
@@ -96,94 +76,52 @@ class ReminderManager {
 
   Future<void> createRecurringReminders(
       int mainReminderId, Reminder parentReminder) async {
-    int currentHour = parentReminder.hour;
-    int currentMinute = parentReminder.minute;
-
+    DateTime time =
+        DateTime(2000, 1, 1, parentReminder.hour, parentReminder.minute);
     for (int i = 1; i <= parentReminder.repeatCount!; i++) {
-      Map<String, int> childTime = incrementHour(
-          currentHour, currentMinute, parentReminder.repeatInterval!);
-
+      time = time.add(Duration(minutes: parentReminder.repeatInterval!));
       Reminder childReminder = Reminder(
         dadId: mainReminderId,
-        title: '${parentReminder.title}$i',
+        title: parentReminder.title,
         description: parentReminder.description,
         enabled: parentReminder.enabled,
-        hour: childTime['hour']!,
-        minute: childTime['minute']!,
+        hour: time.hour,
+        minute: time.minute,
       );
       childReminder.id = _db.saveReminder(childReminder);
       await NotificationService.createNotification(childReminder);
-
-      currentHour = childTime['hour']!;
-      currentMinute = childTime['minute']!;
     }
   }
 
   Future<void> updateReminderStatus(int id, bool active) async {
-    Reminder? mainReminder = _db.getReminder(id);
-    if (mainReminder != null) {
-      mainReminder.enabled = active;
-      _db.saveReminder(mainReminder);
-      _refreshReminders();
-
-      if (active) {
-        await NotificationService.createNotification(mainReminder);
-      } else {
-        await NotificationService.cancelNotification(mainReminder.id);
-      }
-
-      List<Reminder> childReminders = _db
-          .getAllReminders()
-          .where((element) => element.id == mainReminder.id)
-          .toList();
-
-      for (var childReminder in childReminders) {
-        childReminder.enabled = active;
-        _db.saveReminder(childReminder);
-
-        if (active) {
-          await NotificationService.createNotification(childReminder);
-        } else {
-          await NotificationService.cancelNotification(childReminder.id);
-        }
-      }
+    var remindersToUpdate = _db
+        .getAllReminders()
+        .where((r) => r.id == id || r.dadId == id)
+        .toList();
+    for (var reminder in remindersToUpdate) {
+      reminder.enabled = active;
+      _db.saveReminder(reminder);
+      await (active
+          ? NotificationService.createNotification(reminder)
+          : NotificationService.cancelNotification(reminder.id));
     }
-  }
-
-  Reminder? fetchReminder(int id) {
-    return _db.getReminder(id);
+    _refreshReminders();
   }
 
   Future<bool> deleteReminder(int id) async {
-    await NotificationService.cancelNotification(id);
-    bool deleted = _db.removeReminder(id);
-    _refreshReminders();
-
-    List<Reminder> childReminders = _db
+    var remindersToDelete = _db
         .getAllReminders()
-        .where((reminder) => reminder.dadId == id)
+        .where((r) => r.id == id || r.dadId == id)
         .toList();
-    for (var childReminder in childReminders) {
-      await NotificationService.cancelNotification(childReminder.id);
-      _db.removeReminder(childReminder.id);
+    for (var reminder in remindersToDelete) {
+      await NotificationService.cancelNotification(reminder.id);
+      _db.removeReminder(reminder.id);
     }
-    return deleted;
+    _refreshReminders();
+    return true;
   }
 
-  List<Reminder> listReminders() {
-    return _db
-        .getAllReminders()
-        .where((reminder) => reminder.dadId == null)
-        .toList();
-  }
+  List<Reminder> listReminders() =>
+      _db.getAllReminders().where((r) => r.dadId == null).toList();
 
-  Map<String, int> incrementHour(int hour, int minute, int incrementMinutes) {
-    DateTime now = DateTime(2000, 1, 1, hour, minute);
-    DateTime newHour = now.add(Duration(minutes: incrementMinutes));
-
-    return {
-      'hour': newHour.hour,
-      'minute': newHour.minute,
-    };
-  }
 }
